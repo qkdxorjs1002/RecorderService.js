@@ -75,6 +75,7 @@ export default class RecorderService {
             debugging: true,
             audioConstraints: {
                 channelCount: 1,
+                sampleRate: 16000,
                 autoGainControl: false,
                 echoCancellation: false,
                 noiseSuppression: false
