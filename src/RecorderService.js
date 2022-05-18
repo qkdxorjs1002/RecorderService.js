@@ -11,7 +11,7 @@ import EncoderWav from './encoder-wav-worker.js'
  * RecorderService
  * @class
  */
-class RecorderService {
+export default class RecorderService {
 
     /**
      * @param {Object} config                                     설정
