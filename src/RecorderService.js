@@ -83,7 +83,7 @@ export default class RecorderService {
      * @returns {RecorderService} RecorderService
      */
     static createPreConfigured(config) {
-        const _config = {
+        let _config = {
             sampleRate: 16000,
             latencyHint: 'interactive',
             broadcastAudioProcessEvents: true,
