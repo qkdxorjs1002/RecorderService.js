@@ -1,11 +1,34 @@
-import EncoderWav from './encoder-wav-worker.js'
-
 /**
  * Recorder Service
  * WebAudioAPI
+ * @author paragonnov
+ * @license MIT
  */
-export default class RecorderService {
 
+import EncoderWav from './encoder-wav-worker.js'
+
+/**
+ * RecorderService
+ * @class
+ */
+class RecorderService {
+
+    /**
+     * @param {Object} config                                     설정
+     * @param {Boolean} config.broadcastAudioProcessEvents        오디오 처리 이벤트 발생 여부
+     * @param {Boolean} config.enableDynamicsCompressor           오디오 리미터 사용 여부
+     * @param {Boolean} config.noAudioWorklet                     AudioWorkletNode 사용 여부
+     * @param {Number} config.micGain                             마이크 입력 증폭
+     * @param {Number} config.outputGain                          오디오 증폭
+     * @param {Number} config.bufferSize                          오디오 버퍼 크기
+     * @param {Boolean} config.stopTracksAndCloseCtxWhenFinished  녹음 종료 후 자원 해제 여부
+     * @param {Boolean} config.usingMediaRecorder                 MediaRecorder 사용 여부
+     * @param {Boolean} config.makeBlob                           오디오 결과 Blob 생성 여부
+     * @param {String} config.latencyHint                         오디오 처리 우선 순위 (balanced | interactive | playback)
+     * @param {Number} config.sampleRate                          오디오 샘플링 레이트
+     * @param {Boolean} config.debugging                          콘솔 디버깅 출력 여부
+     * @param {MediaTrackConstraintSet} config.audioConstraints   MediaTrackOption.audio
+     */
     constructor (config) {
         // Chrome, Safari AudioContext
         window.AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -20,58 +43,53 @@ export default class RecorderService {
 
         this.encoderMimeType = 'audio/wav';
 
-        /**
-         * RecorderService 기본 설정
-         * 'broadcastAudioProcessEvents'        : 오디오 처리 이벤트 발생 여부<br/>
-         * 'enableDynamicsCompressor'           : 오디오 리미터 사용 여부<br/>
-         * 'noAudioWorklet'                     : AudioWorkletNode 사용 여부</br>
-         * 'micGain'                            : 마이크 입력 증폭<br/>
-         * 'outputGain'                         : 오디오 증폭<br/>
-         * 'processorBufferSize'                : ScriptProcessor 버퍼 크기<br/>
-         * 'stopTracksAndCloseCtxWhenFinished'  : 녹음 종료 후 자원 해제 여부<br/>
-         * 'usingMediaRecorder'                 : MediaRecorder 사용 여부<br/>
-         * 'latencyHint'                        : 오디오 처리 우선 순위 (balanced | interactive | playback)<br/>
-         * 'sampleRate'                         : 오디오 샘플링 레이트<br/>
-         * 'debugging'                          : 콘솔 디버깅 출력 여부</br>
-         * 'audioConstraints'                   : MediaTrackOption.audio<br/>
-         * @type {*}
-         */
         this.config = {
+            sampleRate: 48000,
+            latencyHint: 'balanced',
+            bufferSize: 4096,
+            micGain: 1.0,
+            outputGain: 1.0,
             broadcastAudioProcessEvents: false,
             enableDynamicsCompressor: false,
             noAudioWorklet: false,
-            micGain: 1.0,
-            outputGain: 1.0,
-            processorBufferSize: 2048,
-            stopTracksAndCloseCtxWhenFinished: true,
             usingMediaRecorder: typeof window.MediaRecorder !== 'undefined',
-            latencyHint: 'balanced',
-            sampleRate: 48000,
+            makeBlob: true,
+            stopTracksAndCloseCtxWhenFinished: true,
             debugging: false,
             audioConstraints: { }
         };
 
-        if (config != null) {
-            this.config = config;
+        if (config != undefined) {
+            this.config = Object.assign(this.config, config);
         }
     }
 
     /**
      * 사전 정의된 설정으로 생성
+     * @param {Object} config                                     설정
+     * @param {Boolean} config.broadcastAudioProcessEvents        오디오 처리 이벤트 발생 여부
+     * @param {Boolean} config.enableDynamicsCompressor           오디오 리미터 사용 여부
+     * @param {Boolean} config.noAudioWorklet                     AudioWorkletNode 사용 여부
+     * @param {Number} config.micGain                             마이크 입력 증폭
+     * @param {Number} config.outputGain                          오디오 증폭
+     * @param {Number} config.bufferSize                          오디오 버퍼 크기
+     * @param {Boolean} config.stopTracksAndCloseCtxWhenFinished  녹음 종료 후 자원 해제 여부
+     * @param {Boolean} config.usingMediaRecorder                 MediaRecorder 사용 여부
+     * @param {Boolean} config.makeBlob                           오디오 결과 Blob 생성 여부
+     * @param {String} config.latencyHint                         오디오 처리 우선 순위 (balanced | interactive | playback)
+     * @param {Number} config.sampleRate                          오디오 샘플링 레이트
+     * @param {Boolean} config.debugging                          콘솔 디버깅 출력 여부
+     * @param {MediaTrackConstraintSet} config.audioConstraints   MediaTrackOption.audio
      * @returns {RecorderService} RecorderService
      */
-    static createPreConfigured() {
+    static createPreConfigured(config) {
         const _config = {
+            sampleRate: 16000,
+            latencyHint: 'interactive',
             broadcastAudioProcessEvents: true,
             enableDynamicsCompressor: true,
-            noAudioWorklet: false,
-            micGain: 1.0,
-            outputGain: 1.0,
-            processorBufferSize: 0,
-            stopTracksAndCloseCtxWhenFinished: true,
             usingMediaRecorder: false,
-            latencyHint: 'interactive',
-            sampleRate: 16000,
+            makeBlob: true,
             debugging: true,
             audioConstraints: {
                 channelCount: 1,
@@ -81,6 +99,10 @@ export default class RecorderService {
                 noiseSuppression: false
             }
         };
+
+        if (config != undefined) {
+            _config = Object.assign(_config, config);
+        }
 
         const userAgentAlias = this.getUserAgentAlias();
         console.log("RecorderService: UserAgentAlias:", userAgentAlias);
@@ -190,7 +212,7 @@ export default class RecorderService {
 
                 this.audioBuffer = this.audioCtx.createBuffer(
                     this.config.audioConstraints.channelCount || 1,
-                    4096,
+                    this.config.bufferSize,
                     this.audioCtx.sampleRate
                 );
             }).catch((e) => {
@@ -198,7 +220,7 @@ export default class RecorderService {
                 console.log("RecorderService: AudioWorkletNode is not available. Use ScriptProcessorNode.");
                 this.config.noAudioWorklet = true;
                 this.processorNode = this.audioCtx.createScriptProcessor(
-                    this.config.processorBufferSize,
+                    this.config.bufferSize,
                     this.config.audioConstraints.channelCount || 1,
                     1
                 );
@@ -212,8 +234,8 @@ export default class RecorderService {
             this.destinationNode = this.audioCtx.destination;
         }
 
-        // MediaRecorder 사용 안할 경우, 인코딩 Worker 초기화
-        if (!this.config.usingMediaRecorder) {
+        // Blob 생성하고, MediaRecorder 사용 안할 경우, 인코딩 Worker 초기화
+        if (!this.config.usingMediaRecorder && this.config.makeBlob) {
             this.encoderWorker = this.createWorker(EncoderWav);
             this.encoderMimeType = 'audio/wav';
 
@@ -224,7 +246,7 @@ export default class RecorderService {
                 console.log("RecorderService:", event.data);
 
                 this._onDataAvailable(event);
-            })
+            });
         }
 
         // getUserMedia 제약
@@ -299,16 +321,15 @@ export default class RecorderService {
         // GainNode 증폭 설정 적용
         this.outputGainNode.gain.setValueAtTime(this.config.outputGain, this.audioCtx.currentTime);
 
-        // MediaRecorder 사용할 경우 이벤트 리스너 추가 및 오디오 인코딩
-        if (this.config.usingMediaRecorder) {
+        // Blob 생성하고, MediaRecorder 사용할 경우 이벤트 리스너 추가 및 오디오 인코딩
+        if (this.config.usingMediaRecorder && this.config.makeBlob) {
             this.mediaRecorder = new MediaRecorder(this.destinationNode.stream);
 
             this.mediaRecorder.addEventListener('dataavailable', (event) => this._onDataAvailable(event));
             this.mediaRecorder.addEventListener('error', (event) => this._onError(event));
 
             this.mediaRecorder.start();
-        }
-        else {
+        } else {
             // MediaRecorder 사용하지 않을 경우 증폭 값 0
             this.outputGainNode.gain.setValueAtTime(0, this.audioCtx.currentTime);
         }
@@ -336,8 +357,8 @@ export default class RecorderService {
             }));
         }
 
-        // 오디오 인코딩
-        if (!this.config.usingMediaRecorder) {
+        // Blob 생성하고, MediaRecorder 사용할 경우 오디오 인코딩
+        if (!this.config.usingMediaRecorder && this.config.makeBlob) {
             if (this.state === 'recording') {
                 // 채널 데이터 인코딩 Worker Post
                 this.encoderWorker.postMessage([
@@ -360,14 +381,18 @@ export default class RecorderService {
             return ;
         }
 
-        if (this.config.usingMediaRecorder) {
-            this.state = 'inactive';
-            // MediaRecorder 사용할 경우 정지
-            this.mediaRecorder.stop();
-        } else {
-            this.state = 'inactive';
-            // 인코딩 Worker 데이터 dump 요청
-            this.encoderWorker.postMessage(['dump', this.audioCtx.sampleRate]);
+        // Blob 생성할 경우
+        if (this.config.makeBlob) {
+            // MediaRecorder 사용할 경우
+            if (this.config.usingMediaRecorder) {
+                this.state = 'inactive';
+                // MediaRecorder 사용할 경우 정지
+                this.mediaRecorder.stop();
+            } else {
+                this.state = 'inactive';
+                // 인코딩 Worker 데이터 dump 요청
+                this.encoderWorker.postMessage(['dump', this.audioCtx.sampleRate]);
+            }
         }
     }
 
