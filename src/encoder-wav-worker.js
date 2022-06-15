@@ -1,4 +1,4 @@
-var worker = function () {
+export default function () {
     let BYTES_PER_SAMPLE = 2
     let recorded = []
 
@@ -73,5 +73,3 @@ var worker = function () {
         }
     }
 }
-
-export default worker;

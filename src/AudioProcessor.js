@@ -3,10 +3,10 @@
  */
 class AudioProcessor extends AudioWorkletProcessor {
 
-    constructor() {
+    constructor(options) {
         super();
-        this._inputBuffer = null;
-        this._fifoBuffer = new Float32Array(4096);
+        this.bufferSize = options.processorOptions.bufferSize;
+        this.buffer = new Float32Array(this.bufferSize);
     }
 
     /**
@@ -17,61 +17,48 @@ class AudioProcessor extends AudioWorkletProcessor {
      */
     process(inputList, outputList) {
         if (inputList[0].length > 0 && inputList[0][0].length > 0) {
-            this._pushToBuffer(inputList[0][0]);
-            this._inputBuffer = inputList;
-            outputList = this._inputBuffer;
-
-            this.port.postMessage({
-                inputBuffer: this._inputBuffer[0][0],
-                outputBuffer: outputList[0][0],
-                fifoBuffer: this._fifoBuffer
-            });
+            let inputBuffer = inputList[0][0];
+            this.pushToBuffer(inputBuffer);
+            outputList = inputList;
+            
+            if (this.buffer.length >= this.bufferSize) {
+                this.port.postMessage({
+                    inputBuffer: inputBuffer,
+                    processedBuffer: this.buffer
+                });
+            }
         }
 
         return true;
     }
 
     /**
-     * 오디오 RAW 데이터 -> AudioBuffer
-     * @param {Float32Array} inputArray
+     * 오디오 RAW 데이터 Buffer
+     * @param {Float32Array} buffer
      * @private
      */
-    _pushToBuffer(inputArray) {
-        let mergedData = new Float32Array(this._fifoBuffer.length + inputArray.length);
-        mergedData.set(this._fifoBuffer, 0);
-        mergedData.set(inputArray, this._fifoBuffer.length);
-        this._fifoBuffer = mergedData.slice(inputArray.length, mergedData.length);
+    pushToBuffer(buffer) {
+        if (this.buffer.length >= this.bufferSize) {
+            this.buffer = new Float32Array(0);
+        }
+        let mergedData = new Float32Array(this.buffer.length + buffer.length);
+        mergedData.set(this.buffer, 0);
+        mergedData.set(buffer, this.buffer.length);
+        this.buffer = mergedData;
     }
 
-}
+    // /**
+    //  * 오디오 RAW 데이터 FIFO Buffer
+    //  * @param {Float32Array} buffer
+    //  * @private
+    //  */
+    // _pushToFifoBuffer(buffer) {
+    //     let mergedData = new Float32Array(this.buffer.length + buffer.length);
+    //     mergedData.set(this.buffer, 0);
+    //     mergedData.set(buffer, this.buffer.length);
+    //     this.buffer = mergedData.slice(buffer.length, mergedData.length);
+    // }
 
-// /**
-//  * Circular Queue for FIFO Buffer (WIP)
-//  */
-// class BufferQueue {
-//
-//     constructor(queueSize) {
-//         this._queueSize = queueSize;
-//         this._fifoBuffer = new Float32Array(queueSize);
-//         this._head = 0;
-//         this._tail = 0;
-//     }
-//
-//     _pop(popSize) {
-//         this._head = (this._head + popSize) % this._queueSize;
-//     }
-//
-//     push(inputArray) {
-//         if (inputArray.length > this._queueSize) {
-//             throw "AudioProcessor: Process: inputArray length is bigger than bufferSize.";
-//         }
-//
-//         if (this._tail + inputArray.length > this._queueSize - 1) {
-//
-//         } else {
-//             this._fifoBuffer.set(inputArray)
-//         }
-//     }
-// }
+}
 
 registerProcessor('audio-processor', AudioProcessor);
