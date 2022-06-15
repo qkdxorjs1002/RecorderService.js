@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+
+        <link href="data:image/gif;" rel="icon" type="image/x-icon" />
+
+        <!-- Bootstrap -->
+        <link href="//maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css" rel="stylesheet">
+
+        <link rel="stylesheet" href="https://wavesurfer-js.org/example/css/style.css" />
+        <link rel="stylesheet" href="https://wavesurfer-js.org/example/css/ribbon.css" />
+
+        <!-- wavesurfer.js -->
+        <script src="https://unpkg.com/wavesurfer.js/dist/wavesurfer.js"></script>
+
+        <!-- RecorderService -->
+        <!--<script type="module" src="RecorderService.js/RecorderService.js"></script>-->
+
+        <!-- App -->
+        <script type="module" src="demo.js"></script>
+    </head>
+
+    <body itemscope itemtype="http://schema.org/WebApplication">
+        <div class="container">
+            <div id="demo">
+                <div id="waveform"></div>
+                <div class="controls">
+                    <button id="micBtn" class="btn btn-primary" data-action="start">
+                        Mic
+                    </button>
+                </div>
+                <a id="blobUrl"></a>
+            </div>
+        </div>
+    </body>
+</html>
