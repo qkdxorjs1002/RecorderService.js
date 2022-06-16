@@ -1,6 +1,6 @@
 'use strict';
 
-import RecorderService from "./RecorderService.js/RecorderService.js";
+import RecorderService from '../src/RecorderService.js'
 
 let wavesurfer, recorderService, pre;
 let recording = false;
@@ -29,33 +29,39 @@ document.addEventListener('DOMContentLoaded', function() {
         fillParent: true
     });
     wavesurfer.stop();
+
     wavesurfer.on('error', function(e) {
         console.warn(e);
     });
 
+    wavesurfer.on('seek', function(where) {
+        wavesurfer.play();
+    });
+
     recorderService = RecorderService.createPreConfigured({
-        bufferSize: 4096,
-        makeBlob: true,
+        debug: true,
+        micGain: 2.0,
+        audioProcessor: "../src/AudioProcessor.js"
     });
 
     recorderService.em.addEventListener("onaudioprocess", (event) => {
         let buffer = event.detail.buffer;
-
-        const now = new Date().getTime();
-        console.log("ProcessingTime", now - pre, buffer);
-        pre = now;
 
         wavesurfer.loadDecodedBuffer(buffer);
     });
 
     recorderService.em.addEventListener("recorded", (event) => {
         document.querySelector('#blobUrl').innerHTML = event.detail.recorded.blobUrl;
+
+        wavesurfer.on('ready', function () {
+            wavesurfer.play();
+        });
         wavesurfer.load(event.detail.recorded.blobUrl);
-        wavesurfer.playPause();
     });
 
     micBtn.onclick = function() {
         if (!recording) {
+            wavesurfer.un('ready');
             recorderService.record();
             recording = true;
         } else {
