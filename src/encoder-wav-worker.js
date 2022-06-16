@@ -1,4 +1,4 @@
-export default function () {
+const worker = function () {
     let BYTES_PER_SAMPLE = 2
     let recorded = []
 
@@ -72,4 +72,6 @@ export default function () {
             self.close()
         }
     }
-}
+};
+
+export default worker;

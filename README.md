@@ -13,13 +13,14 @@ WebAudioAPI Audio Recorder Service
 var recorderSrvc = RecorderService.createPreConfigured();
 
 // Add event listener to get audio buffer data
-recorderSrvc.em.addEventListener('onaudioprocess', (event) =>
+// event.detail.buffer -> AudioBuffer
+recorderSrvc.em.addEventListener("onaudioprocess", (event) =>
     wavesurfer.loadDecodedBuffer(event.detail.buffer));
 
 // Add event listener for recorded data
-recorderSrvc.em.addEventListener('recorded', (event) => {
-    console.log("Info: Blob:", event.detail);
-    convertBlobToBase64(event.detail.recorded.blob);
+recorderSrvc.em.addEventListener("recorded", (event) => {
+    // event.detail.recorded.blob -> Blob
+    // event.detail.recorded.blobUrl -> String
     wavesurfer.load(event.detail.recorded.blobUrl);
 });
 
@@ -34,6 +35,18 @@ recorderSrvc.record()
 
 // Stop recording
 recorderSrvc.stop();
+```
+
+## Demo
+
+```bash
+# install node.js serve
+yarn global add serve
+# or
+npm install -g serve
+# run serve
+serve --ssl-cert <SSL_CERT_PATH> --ssl-key <SSL_KEY_PATH> ./
+# https://localhost:3000/demo
 ```
 
 ## Documentation
