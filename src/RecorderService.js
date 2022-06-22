@@ -1,4 +1,5 @@
 import EncoderWav from "./encoder-wav-worker.js";
+import Resampler from "./Resampler.js";
 
 /**
  * RecorderService
@@ -14,10 +15,10 @@ import EncoderWav from "./encoder-wav-worker.js";
  * let recorderService = RecorderService.createPreConfigured();
  * 
  * // Add event listener to get audio buffer data
- * // event.detail.buffer -> AudioBuffer
+ * // event.detail.audioBuffer -> AudioBuffer
+ * // event.detail.arrayBuffer -> Float32Array
  * recorderService.em.addEventListener('onaudioprocess', (event) =>
- *     wavesurfer.loadDecodedBuffer(event.detail.buffer));
- * 
+ *     wavesurfer.loadDecodedBuffer(event.detail.audioBuffer));
  * // Add event listener for recorded data
  * recorderService.em.addEventListener('recorded', (event) => {
  *     // event.detail.recorded.blob -> Blob
@@ -45,7 +46,7 @@ export default class RecorderService {
      * @property {Number} sampleRate                            오디오 샘플링 레이트 {16000}
      * @property {Number} channelCount                          오디오 입력, 처리될 채널 수 {1}
      * @property {String} latencyHint                           오디오 처리 우선 순위 [balanced | interactive | playback] {interactive}
-     * @property {Number} bufferSize                            오디오 버퍼 크기 {4096}
+     * @property {Number} bufferSize                            오디오 버퍼 크기 [2^{12}=4096] {12}
      * @property {Number} micGain                               오디오 입력 증폭 {1.0}
      * @property {Number} outputGain                            오디오 출력 증폭 (MediaRecorder) {1.0}
      * @property {Boolean} broadcastAudioProcessEvents          오디오 처리 이벤트 발생 여부 {true}
@@ -69,7 +70,7 @@ export default class RecorderService {
      *     sampleRate: 16000,
      *     channelCount: 1,
      *     latencyHint: "interactive",
-     *     bufferSize: 4096,
+     *     bufferSize: 12,
      *     micGain: 1.0,
      *     outputGain: 1.0,
      *     broadcastAudioProcessEvents: true,
@@ -102,7 +103,7 @@ export default class RecorderService {
             sampleRate: 16000,
             channelCount: 1,
             latencyHint: "interactive",
-            bufferSize: 4096,
+            bufferSize: 12,
             micGain: 1.0,
             outputGain: 1.0,
             broadcastAudioProcessEvents: true,
@@ -255,6 +256,14 @@ export default class RecorderService {
         if (this.config.enableDynamicsCompressor) {
             this.dynamicsCompressorNode = this.audioCtx.createDynamicsCompressor();
         }
+        
+        /**
+         * config.sampleRate와 마이크 입력 SampleRate가 다를 경우,
+         * 설정된 config.bufferSize와 근사한 크기의 리샘플링된 버퍼를 출력하기 위해 목표 버퍼 크기 설정
+         */
+        this.bufferSizeRatio = this.audioCtx.sampleRate / this.config.sampleRate;
+        this.bufferSize = 2 ** Math.min((this.config.bufferSize + Math.round(this.bufferSizeRatio) - 1), 14);
+        this.debug("RecorderService: Preferred BufferSize", this.bufferSize, this.bufferSizeRatio);
 
         // AudioWorkletNode || ScriptProcessorNode - 오디오 버퍼 처리 Node
         if (this.config.broadcastAudioProcessEvents || !this.config.usingMediaRecorder) {
@@ -269,14 +278,14 @@ export default class RecorderService {
                         numberOfInputs: this.config.channelCount,
                         numberOfOutputs: this.config.channelCount,
                         processorOptions: {
-                            bufferSize: this.config.bufferSize,
+                            bufferSize: this.bufferSize,
                         }
                     });
                     this.debug("RecorderService: AudioWorkletNode", this.processorNode);
     
                     this.audioBuffer = this.audioCtx.createBuffer(
                         this.config.channelCount,
-                        this.config.bufferSize,
+                        this.bufferSize,
                         this.audioCtx.sampleRate
                     );
                     this.debug("RecorderService: AudioBuffer", this.audioBuffer);
@@ -286,7 +295,7 @@ export default class RecorderService {
                 this.warn("RecorderService: AudioWorkletNode is not available. Use ScriptProcessorNode.", e);
                 this.config.noAudioWorklet = true;
                 this.processorNode = this.audioCtx.createScriptProcessor(
-                    this.config.bufferSize,
+                    this.bufferSize,
                     this.config.channelCount,
                     1
                 );
@@ -318,7 +327,7 @@ export default class RecorderService {
         // getUserMedia 제약
         const userMediaConstraints = {
             audio: Object.assign({
-                sampleRate: this.config.sampleRate,
+                //sampleRate: this.config.sampleRate,
                 channelCount: this.config.channelCount
             }, this.config.audioConstraints)
         };
@@ -424,17 +433,36 @@ export default class RecorderService {
      */
     _onAudioProcess(event) {
         // Raw audio data -> AudioBuffer
+        let audioBuffer;
         if (!this.config.noAudioWorklet) {
-            this.audioBuffer.copyToChannel(event.processedBuffer, 0);
+            audioBuffer = this.audioBuffer;
+            audioBuffer.copyToChannel(event.processedBuffer, 0);
+        } else {
+            audioBuffer = event.inputBuffer;
+        }
+
+        let arrayBuffer;
+        if (this.bufferSizeRatio != 1) {
+            let resampler = new Resampler(
+                this.audioCtx.sampleRate, 
+                this.config.sampleRate, 
+                this.config.channelCount, 
+                audioBuffer.getChannelData(0)
+            );
+            resampler.resampler(Math.ceil(this.bufferSize * this.bufferSizeRatio));
+            arrayBuffer = resampler.outputBuffer;
+            this.debug("RecorderService: Resampled Buffer", arrayBuffer, resampler);
+        } else {
+            arrayBuffer = audioBuffer.getChannelData(0);
+            this.debug("RecorderService: Original Buffer", arrayBuffer);
         }
 
         // 오디오 처리 이벤트 트리거
         if (this.config.broadcastAudioProcessEvents) {
             this.em.dispatchEvent(new CustomEvent("onaudioprocess", {
                 detail: {
-                    buffer: (this.config.noAudioWorklet)
-                        ? event.inputBuffer
-                        : this.audioBuffer
+                    audioBuffer: audioBuffer,
+                    arrayBuffer: arrayBuffer
                 }
             }));
         }
@@ -445,9 +473,7 @@ export default class RecorderService {
                 // 채널 데이터 인코딩 Worker Post
                 this.encoderWorker.postMessage([
                     "encode",
-                    (this.config.noAudioWorklet)
-                        ? event.inputBuffer.getChannelData(0)
-                        : new Float32Array(event.processedBuffer)
+                    arrayBuffer
                 ]);
             }
         }
@@ -478,7 +504,7 @@ export default class RecorderService {
                 this.mediaRecorder.stop();
             } else {
                 // 인코딩 Worker 데이터 dump 요청
-                this.encoderWorker.postMessage(["dump", this.audioCtx.sampleRate]);
+                this.encoderWorker.postMessage(["dump", this.config.sampleRate]);
             }
         } else {
             this._destroy();

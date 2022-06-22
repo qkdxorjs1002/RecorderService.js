@@ -2,7 +2,7 @@
 
 import RecorderService from '../src/RecorderService.js'
 
-let wavesurfer, recorderService, pre;
+let wavesurfer, recorderService;
 let recording = false;
 
 // Init & load
@@ -45,9 +45,9 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     recorderService.em.addEventListener("onaudioprocess", (event) => {
-        let buffer = event.detail.buffer;
+        let audioBuffer = event.detail.audioBuffer;
 
-        wavesurfer.loadDecodedBuffer(buffer);
+        wavesurfer.loadDecodedBuffer(audioBuffer);
     });
 
     recorderService.em.addEventListener("recorded", (event) => {
