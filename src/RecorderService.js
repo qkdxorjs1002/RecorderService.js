@@ -432,11 +432,17 @@ export default class RecorderService {
      * @private
      */
     _onAudioProcess(event) {
+        if (this.config.debug) {
+            const now = new Date().getTime();
+            this.debug("RecorderService: BufferToBufferTime", now - (this.pre || now), event);
+            this.pre = now;
+        }
+
         // Raw audio data -> AudioBuffer
         let audioBuffer;
         if (!this.config.noAudioWorklet) {
             audioBuffer = this.audioBuffer;
-            audioBuffer.copyToChannel(event.processedBuffer, 0);
+            audioBuffer.copyToChannel(event.buffer, 0);
         } else {
             audioBuffer = event.inputBuffer;
         }
@@ -476,12 +482,6 @@ export default class RecorderService {
                     arrayBuffer
                 ]);
             }
-        }
-
-        if (this.config.debug) {
-            const now = new Date().getTime();
-            this.debug("RecorderService: BufferToBufferTime", now - (this.pre || now), event);
-            this.pre = now;
         }
     }
 
