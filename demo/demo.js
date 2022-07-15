@@ -41,7 +41,6 @@ document.addEventListener('DOMContentLoaded', function() {
     recorderService = RecorderService.createPreConfigured({
         debug: true,
         micGain: 2.0,
-        audioProcessor: "../src/AudioProcessor.js"
     });
 
     recorderService.em.addEventListener("onaudioprocess", (event) => {
