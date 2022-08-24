@@ -14,11 +14,11 @@ var recorderSrvc = RecorderService.createPreConfigured();
 
 // Add event listener to get audio buffer data
 // event.detail.buffer -> AudioBuffer
-recorderSrvc.em.addEventListener("onaudioprocess", (event) =>
+recorderSrvc.addBufferEventListener("onaudioprocess", (event) =>
     wavesurfer.loadDecodedBuffer(event.detail.buffer));
 
 // Add event listener for recorded data
-recorderSrvc.em.addEventListener("recorded", (event) => {
+recorderSrvc.addRecordedEventListener("recorded", (event) => {
     // event.detail.recorded.blob -> Blob
     // event.detail.recorded.blobUrl -> String
     wavesurfer.load(event.detail.recorded.blobUrl);

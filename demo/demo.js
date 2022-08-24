@@ -8,6 +8,7 @@ let recording = false;
 // Init & load
 document.addEventListener('DOMContentLoaded', function() {
     let micBtn = document.querySelector('#micBtn');
+    let micPauseBtn = document.querySelector('#micPauseBtn');
 
     // Init wavesurfer
     wavesurfer = WaveSurfer.create({
@@ -43,13 +44,13 @@ document.addEventListener('DOMContentLoaded', function() {
         micGain: 2.0,
     });
 
-    recorderService.em.addEventListener("onaudioprocess", (event) => {
+    recorderService.addBufferEventListener(async (event) => {
         let audioBuffer = event.detail.audioBuffer;
 
         wavesurfer.loadDecodedBuffer(audioBuffer);
     });
 
-    recorderService.em.addEventListener("recorded", (event) => {
+    recorderService.addRecordedEventListener(async (event) => {
         document.querySelector('#blobUrl').innerHTML = event.detail.recorded.blobUrl;
 
         wavesurfer.on('ready', function () {
@@ -68,4 +69,12 @@ document.addEventListener('DOMContentLoaded', function() {
             recording = false;
         }
     };
+
+    micPauseBtn.onclick = function() {
+        if (recorderService.state === "recording") {
+            recorderService.pause();
+        } else if (recorderService.state === "paused") {
+            recorderService.resume();
+        }
+    };    
 });
