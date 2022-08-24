@@ -20,8 +20,6 @@ const worker = function () {
                 let inputBuffer = inputList[0][0];
                 this.pushToBuffer(inputBuffer);
 
-                outputList = inputList;
-
                 if (this.buffer.length >= this.bufferSize) {
                     this.port.postMessage({
                         buffer: this.buffer,

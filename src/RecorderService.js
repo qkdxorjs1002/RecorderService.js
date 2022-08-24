@@ -18,10 +18,10 @@ import Resampler from "./Resampler.js";
  * // Add event listener to get audio buffer data
  * // event.detail.audioBuffer -> AudioBuffer
  * // event.detail.arrayBuffer -> Float32Array
- * recorderService.em.addEventListener('onaudioprocess', (event) =>
+ * recorderService.addBufferEventListener((event) =>
  *     wavesurfer.loadDecodedBuffer(event.detail.audioBuffer));
  * // Add event listener for recorded data
- * recorderService.em.addEventListener('recorded', (event) => {
+ * recorderService.addRecordedEventListener((event) => {
  *     // event.detail.recorded.blob -> Blob
  *     // event.detail.recorded.blobUrl -> String
  *     wavesurfer.load(event.detail.recorded.blobUrl);
@@ -117,6 +117,13 @@ export default class RecorderService {
 
         if (config != undefined) {
             Object.assign(this.config, config);
+
+            if (config.audioConstraints != undefined) {
+                Object.assign(
+                    this.config.audioConstraints,
+                    config.audioConstraints
+                );
+            }
         }
 
         this.info("RecorderService: Config", this.config);
@@ -146,6 +153,13 @@ export default class RecorderService {
         };
         if (config != undefined) {
             Object.assign(_config, config);
+
+            if (config.audioConstraints != undefined) {
+                Object.assign(
+                    _config.audioConstraints,
+                    config.audioConstraints
+                );
+            }
         }
 
         const userAgentAlias = this.getUserAgentAlias();
@@ -169,6 +183,12 @@ export default class RecorderService {
             // Empty
         } else if (userAgentAlias === "android-v500") {
             // Empty
+        } else if (userAgentAlias === "android-a32") {
+            Object.assign(_config, {
+                audioConstraints: {
+                    echoCancellation: false,
+                },
+            });
         } else if (userAgentAlias === "other") {
             // Empty
         }
@@ -197,6 +217,9 @@ export default class RecorderService {
             } else if (userAgent.indexOf("lm-v500") > -1) {
                 //// LG V50 ThinQ
                 return "android-v500";
+            } else if (userAgent.indexOf("sm-a326") > -1) {
+                //// Galaxy A32
+                return "android-a32";
             }
             return "android";
         } else if (
@@ -247,11 +270,11 @@ export default class RecorderService {
     }
 
     /**
-     * AudioContext 및 Node 초기화, 녹음 시작
+     * AudioContext 및 Node 초기화
      * @returns {(Promise<MediaStream>|void)}
      */
-    async record() {
-        this.info("RecorderService: Start recording");
+    async init() {
+        this.info("RecorderService: Initialization");
 
         if (this.state !== "inactive") {
             return;
@@ -270,7 +293,12 @@ export default class RecorderService {
             latencyHint: this.config.latencyHint,
             sampleRate: this.config.sampleRate,
         });
+
         this.debug("RecorderService: AudioContext", this.audioCtx);
+
+        if (this.audioCtx) {
+            this.audioCtx.suspend();
+        }
         // GainNode - 오디오 증폭 Node
         this.micGainNode = this.audioCtx.createGain();
         this.outputGainNode = this.audioCtx.createGain();
@@ -306,9 +334,9 @@ export default class RecorderService {
                 const audioProcessorUrl =
                     this.createAudioProcessorBlob(AudioProcessor);
 
-                await this.audioCtx.audioWorklet
+                this.audioCtx.audioWorklet
                     .addModule(audioProcessorUrl)
-                    .then(() => {
+                    .then(async () => {
                         this.debug(
                             "RecorderService: Use AudioWorkletNode with AudioProcessor",
                             audioProcessorUrl
@@ -373,32 +401,42 @@ export default class RecorderService {
             this.encoderMimeType = "audio/wav";
 
             // 인코딩 Worker 이벤트 리스너 추가
-            this.encoderWorker.addEventListener("message", (e) => {
+            this.encoderWorker.addEventListener("message", async (e) => {
                 let event = new Event("dataavailable");
                 event.data = new Blob(e.data, { type: this.encoderMimeType });
 
                 this._onDataAvailable(event);
             });
         }
+
         // getUserMedia 제약
         const userMediaConstraints = {
             audio: Object.assign(
                 {
-                    //sampleRate: this.config.sampleRate,
+                    // sampleRate: this.config.sampleRate,
                     channelCount: this.config.channelCount,
                 },
                 this.config.audioConstraints
             ),
         };
+
+        // // 입력 장치 설정
+        // const devices = await navigator.mediaDevices.enumerateDevices();
+
+        // console.log("RecorderService: AudioDeviceList", devices);
+        // const device = devices.find((device) => device.label.includes("earpiece"));
+        // if (device) {
+        //   console.log("RecorderService: AudioOutputDevice", device);
+        //   Object.assign({
+        //     deviceId: device.deviceId || undefined,
+        //   }, userMediaConstraints.audio);
+        // }
+
         this.debug(
             "RecorderService: UserMediaConstraints",
             userMediaConstraints
         );
 
-        // 미디어 소스 ID
-        if (this.config.deviceId) {
-            userMediaConstraints.audio.deviceId = this.config.deviceId;
-        }
         // MediaStream 요청
         return navigator.mediaDevices
             .getUserMedia(userMediaConstraints)
@@ -407,8 +445,10 @@ export default class RecorderService {
                 /**
                  * MediaStream 이벤트 트리거
                  */
-                this.em.dispatchEvent(new CustomEvent("gotstream", stream));
-                this._record(stream);
+                this.em.dispatchEvent(
+                    new CustomEvent("gotstream", { detail: { stream } })
+                );
+                this._init(stream);
             })
             .catch((err) => this._onError(err));
     }
@@ -418,7 +458,7 @@ export default class RecorderService {
      * @private
      * @param {MediaStream} stream
      */
-    _record(stream) {
+    _init(stream) {
         this.micAudioStream = stream;
 
         // MediaStreamSourceNode - 미디어 스트림 입력 Node
@@ -444,25 +484,10 @@ export default class RecorderService {
             nextNode = this.dynamicsCompressorNode;
         }
 
-        this.state = "recording";
-
         // ScriptProcessorNode || AudioWorkletNode 및 GainNode 연결
         if (this.processorNode) {
             nextNode.connect(this.processorNode);
             nextNode = this.processorNode;
-
-            // Message Handler
-            if (!this.config.noAudioWorklet) {
-                this.processorNode.port.onmessage = (e) =>
-                    this._onAudioProcess(e.data);
-            } else {
-                this.processorNode.onaudioprocess = (e) =>
-                    this._onAudioProcess(e);
-            }
-
-            if (this.audioCtx && this.audioCtx.state === "suspended") {
-                this.audioCtx.resume();
-            }
         }
 
         if (this.outputGainNode) {
@@ -481,10 +506,11 @@ export default class RecorderService {
         if (this.config.usingMediaRecorder && this.config.makeBlob) {
             this.mediaRecorder = new MediaRecorder(this.destinationNode.stream);
 
-            this.mediaRecorder.addEventListener("dataavailable", (event) =>
-                this._onDataAvailable(event)
+            this.mediaRecorder.addEventListener(
+                "dataavailable",
+                async (event) => this._onDataAvailable(event)
             );
-            this.mediaRecorder.addEventListener("error", (event) =>
+            this.mediaRecorder.addEventListener("error", async (event) =>
                 this._onError(event)
             );
 
@@ -498,6 +524,98 @@ export default class RecorderService {
                 );
             }
         }
+
+        if (this.audioCtx && this.audioCtx.state === "suspended") {
+            this.audioCtx.resume();
+        }
+
+        this.state = "inited";
+    }
+
+    /**
+     * 마이크 스트림 이벤트 리스너 추가
+     * @param {Function} listener
+     */
+    addGotStreamEventListener(listener) {
+        this.em.addEventListener("gotstream", listener);
+    }
+
+    /**
+     * 오디오 버퍼 이벤트 리스너 추가
+     * @param {Function} listener
+     */
+    addBufferEventListener(listener) {
+        this.em.addEventListener("onaudioprocess", listener);
+    }
+
+    /**
+     * 녹음 완료 이벤트 리스너 추가
+     * @param {Function} listener
+     */
+    addRecordedEventListener(listener) {
+        this.em.addEventListener("recorded", listener);
+    }
+
+    /**
+     * 녹음 시작
+     * @returns {Promise|void}
+     */
+    record() {
+        if (this.state !== "inited") {
+            if (this.state !== "inactive") {
+                return;
+            }
+
+            return this.init().then(() => {
+                this._record();
+            });
+        }
+
+        this._record();
+    }
+
+    _record() {
+        this.info("RecorderService: Start Recording");
+        this._resume();
+
+        if (this.processorNode) {
+            // Message Handler
+            if (!this.config.noAudioWorklet) {
+                this.processorNode.port.onmessage = async (e) =>
+                    this._onAudioProcess(e.data);
+            } else {
+                this.processorNode.onaudioprocess = async (e) =>
+                    this._onAudioProcess(e);
+            }
+        }
+    }
+
+    /**
+     * 녹음 일시정지
+     */
+    pause() {
+        if (this.state !== "recording") {
+            return;
+        }
+
+        this.info("RecorderService: Pause Recording");
+        this.state = "paused";
+    }
+
+    /**
+     * 녹음 이어하기
+     */
+    resume() {
+        if (!(this.state === "paused")) {
+            return;
+        }
+
+        this.info("RecorderService: Resume Recording");
+        this._resume();
+    }
+
+    _resume() {
+        this.state = "recording";
     }
 
     /**
@@ -510,6 +628,10 @@ export default class RecorderService {
      * @private
      */
     _onAudioProcess(event) {
+        if (this.state !== "recording") {
+            return;
+        }
+
         if (this.config.debug) {
             const now = new Date().getTime();
             this.debug(
@@ -575,7 +697,7 @@ export default class RecorderService {
     /**
      * 녹음 종료 및 인코딩 데이터 Dump, 자원 해체
      */
-    stop() {
+    async stop() {
         this.info("RecorderService: Stop Recording");
 
         if (this.state === "inactive") {
@@ -599,6 +721,17 @@ export default class RecorderService {
         } else {
             this._destroy();
         }
+    }
+
+    /**
+     * 모든 자원 해제
+     */
+    release() {
+        if (this.state !== "inactive") {
+            return;
+        }
+
+        this._destroy();
     }
 
     /**
@@ -675,11 +808,16 @@ export default class RecorderService {
         }
 
         if (this.config.stopTracksAndCloseCtxWhenFinished) {
-            this.micAudioStream.getTracks().forEach((track) => track.stop());
-            this.micAudioStream = null;
-
-            this.audioCtx.close();
-            this.audioCtx = null;
+            if (this.micAudioStream) {
+                this.micAudioStream
+                    .getTracks()
+                    .forEach((track) => track.stop());
+                this.micAudioStream = null;
+            }
+            if (this.audioCtx) {
+                this.audioCtx.close();
+                this.audioCtx = null;
+            }
         }
     }
 
