@@ -49,8 +49,10 @@ export default class RecorderService {
      * @property {Number} bufferSize                            오디오 버퍼 크기 [2^{12}=4096] {12}
      * @property {Number} micGain                               오디오 입력 증폭 {1.0}
      * @property {Number} outputGain                            오디오 출력 증폭 (MediaRecorder) {1.0}
+     * @property {Boolean} callingMode                          전화 모드 {false}
      * @property {Boolean} broadcastAudioProcessEvents          오디오 처리 이벤트 발생 여부 {true}
      * @property {Boolean} enableDynamicsCompressor             오디오 리미터 사용 여부 {true}
+     * @property {Boolean} forcePostResampler                   샘플링 레이트 무시 후 강제 리샘플링 활성화 여부 {false}
      * @property {Boolean} noAudioWorklet                       AudioWorkletNode 사용 여부 (ScriptProcessorNode -> Deprecated) {false}
      * @property {Boolean} usingMediaRecorder                   MediaRecorder 사용 여부 {window.MediaRecorder}
      * @property {Boolean} makeBlob                             오디오 결과 Blob 생성 여부 {true}
@@ -72,6 +74,7 @@ export default class RecorderService {
      *     bufferSize: 12,
      *     micGain: 1.0,
      *     outputGain: 1.0,
+     *     callingMode: false,
      *     broadcastAudioProcessEvents: true,
      *     enableDynamicsCompressor: true,
      *     noAudioWorklet: false,
@@ -104,8 +107,10 @@ export default class RecorderService {
             bufferSize: 12,
             micGain: 1.0,
             outputGain: 1.0,
+            callingMode: false,
             broadcastAudioProcessEvents: true,
             enableDynamicsCompressor: true,
+            forcePostResampler: false,
             noAudioWorklet: false,
             usingMediaRecorder: typeof window.MediaRecorder !== "undefined",
             makeBlob: true,
@@ -115,16 +120,7 @@ export default class RecorderService {
             audioConstraints: {},
         };
 
-        if (config != undefined) {
-            Object.assign(this.config, config);
-
-            if (config.audioConstraints != undefined) {
-                Object.assign(
-                    this.config.audioConstraints,
-                    config.audioConstraints
-                );
-            }
-        }
+        this.applyConfig(config);
 
         this.info("RecorderService: Config", this.config);
     }
@@ -238,6 +234,23 @@ export default class RecorderService {
     }
 
     /**
+     * 설정 적용
+     * @param {RecorderServiceConfig} config 설정
+     */
+    applyConfig(config) {
+        if (config != undefined) {
+            Object.assign(this.config, config);
+
+            if (config.audioConstraints != undefined) {
+                Object.assign(
+                    this.config.audioConstraints,
+                    config.audioConstraints
+                );
+            }
+        }
+    }
+
+    /**
      * 인코딩 Worker 생성
      * @param {Object} fn Worker script
      * @returns {Worker} 인코딩 Worker
@@ -291,7 +304,9 @@ export default class RecorderService {
         // WebAudioAPI AudioContext 초기화
         this.audioCtx = new AudioContext({
             latencyHint: this.config.latencyHint,
-            sampleRate: this.config.sampleRate,
+            sampleRate: this.config.forcePostResampler
+                ? undefined
+                : this.config.sampleRate,
         });
 
         this.debug("RecorderService: AudioContext", this.audioCtx);
@@ -334,6 +349,12 @@ export default class RecorderService {
                 const audioProcessorUrl =
                     this.createAudioProcessorBlob(AudioProcessor);
 
+                if (this.config.noAudioWorklet) {
+                    throw new Error(
+                        "RecorderService: Config: noAudioWorklet: true"
+                    );
+                }
+
                 this.audioCtx.audioWorklet
                     .addModule(audioProcessorUrl)
                     .then(async () => {
@@ -341,9 +362,6 @@ export default class RecorderService {
                             "RecorderService: Use AudioWorkletNode with AudioProcessor",
                             audioProcessorUrl
                         );
-                        if (this.config.noAudioWorklet) {
-                            throw "RecorderService: Config: noAudioWorklet: true";
-                        }
 
                         this.processorNode = new AudioWorkletNode(
                             this.audioCtx,
@@ -409,28 +427,22 @@ export default class RecorderService {
             });
         }
 
+        // 입력 장치 설정
+        const device = this.config.callingMode
+            ? await this.getAudioInputDeviceInfo()
+            : undefined;
+
         // getUserMedia 제약
         const userMediaConstraints = {
             audio: Object.assign(
                 {
                     // sampleRate: this.config.sampleRate,
                     channelCount: this.config.channelCount,
+                    deviceId: device ? device.deviceId : undefined,
                 },
                 this.config.audioConstraints
             ),
         };
-
-        // // 입력 장치 설정
-        // const devices = await navigator.mediaDevices.enumerateDevices();
-
-        // console.log("RecorderService: AudioDeviceList", devices);
-        // const device = devices.find((device) => device.label.includes("earpiece"));
-        // if (device) {
-        //   console.log("RecorderService: AudioOutputDevice", device);
-        //   Object.assign({
-        //     deviceId: device.deviceId || undefined,
-        //   }, userMediaConstraints.audio);
-        // }
 
         this.debug(
             "RecorderService: UserMediaConstraints",
@@ -554,6 +566,24 @@ export default class RecorderService {
      */
     addRecordedEventListener(listener) {
         this.em.addEventListener("recorded", listener);
+    }
+
+    /**
+     * 오디오 입력장치 가져오기
+     */
+    async getAudioInputDeviceInfo() {
+        // 입력 장치 설정
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        this.debug("RecorderService: AudioDeviceList", devices);
+
+        const device = devices.find((device) =>
+            device.label.toLowerCase().includes("headset")
+        );
+        if (device) {
+            this.debug("RecorderService: AudioOutputDevice", device);
+        }
+
+        return device;
     }
 
     /**
