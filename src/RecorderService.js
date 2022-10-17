@@ -547,11 +547,7 @@ export default class RecorderService extends EventTarget {
             }
         }
 
-        if (this.audioCtx && this.audioCtx.state === "suspended") {
-            this.audioCtx.resume();
-        }
-
-        this.state = "inited";
+        this._pause();
     }
 
     /**
@@ -611,7 +607,7 @@ export default class RecorderService extends EventTarget {
      * @returns {Promise|void}
      */
     record() {
-        if (this.state !== "inited") {
+        if (this.state !== "paused") {
             if (this.state !== "inactive") {
                 return;
             }
@@ -649,6 +645,13 @@ export default class RecorderService extends EventTarget {
         }
 
         this.info("RecorderService: Pause Recording");
+        this._pause();
+    }
+
+    _pause() {
+        if (this.audioCtx && this.audioCtx.state === "running") {
+            this.audioCtx.suspend();
+        }
         this.state = "paused";
     }
 
@@ -656,7 +659,7 @@ export default class RecorderService extends EventTarget {
      * 녹음 이어하기
      */
     resume() {
-        if (!(this.state === "paused")) {
+        if (this.state !== "paused") {
             return;
         }
 
@@ -665,6 +668,9 @@ export default class RecorderService extends EventTarget {
     }
 
     _resume() {
+        if (this.audioCtx && this.audioCtx.state === "suspended") {
+            this.audioCtx.resume();
+        }
         this.state = "recording";
     }
 
@@ -737,10 +743,8 @@ export default class RecorderService extends EventTarget {
 
         // Blob 생성하고, MediaRecorder 사용할 경우 오디오 인코딩
         if (!this.config.usingMediaRecorder && this.config.makeBlob) {
-            if (this.state === "recording") {
-                // 채널 데이터 인코딩 Worker Post
-                this.encoderWorker.postMessage(["encode", arrayBuffer]);
-            }
+            // 채널 데이터 인코딩 Worker Post
+            this.encoderWorker.postMessage(["encode", arrayBuffer]);
         }
     }
 
@@ -752,6 +756,10 @@ export default class RecorderService extends EventTarget {
 
         if (this.state === "inactive") {
             return;
+        }
+        
+        if (this.audioCtx && this.audioCtx.state === "running") {
+            this.audioCtx.suspend();
         }
 
         this.state = "inactive";
