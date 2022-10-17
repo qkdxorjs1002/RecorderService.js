@@ -40,7 +40,7 @@ import Resampler from "./Resampler.js";
  * recorderService.stop();
  */
 
-export default class RecorderService {
+export default class RecorderService extends EventTarget {
     /**
      * @typedef {Object} RecorderServiceConfig                  RecorderService 설정
      * @property {Number} sampleRate                            오디오 샘플링 레이트 {16000}
@@ -87,11 +87,13 @@ export default class RecorderService {
      * }
      */
     constructor(config) {
+        super();
+
         // Chrome, Safari AudioContext
         window.AudioContext = window.AudioContext || window.webkitAudioContext;
 
         // Dedicated DOM
-        this.em = document.createDocumentFragment();
+        // this.em = document.createDocumentFragment();
 
         this.state = "inactive";
 
@@ -301,6 +303,7 @@ export default class RecorderService {
             alert("navigator.mediaDevices.getUserMedia error");
             return;
         }
+
         // WebAudioAPI AudioContext 초기화
         this.audioCtx = new AudioContext({
             latencyHint: this.config.latencyHint,
@@ -431,11 +434,15 @@ export default class RecorderService {
         const device = this.config.callingMode
             ? await this.getAudioInputDeviceInfo()
             : undefined;
+        if (!device) {
+            this.config.callingMode = false;
+        }
 
         // getUserMedia 제약
         const userMediaConstraints = {
             audio: Object.assign(
                 {
+                    // @NOTE 기기 마다 지원하지 않는 경우도 있어서 비활성
                     // sampleRate: this.config.sampleRate,
                     channelCount: this.config.channelCount,
                     deviceId: device ? device.deviceId : undefined,
@@ -457,7 +464,7 @@ export default class RecorderService {
                 /**
                  * MediaStream 이벤트 트리거
                  */
-                this.em.dispatchEvent(
+                this.dispatchEvent(
                     new CustomEvent("gotstream", { detail: { stream } })
                 );
                 this._init(stream);
@@ -483,11 +490,14 @@ export default class RecorderService {
         let nextNode = this.inputStreamNode;
 
         if (this.micGainNode) {
-            this.inputStreamNode.connect(this.micGainNode);
+            nextNode.connect(this.micGainNode);
+
             this.micGainNode.gain.setValueAtTime(
                 this.config.micGain,
                 this.audioCtx.currentTime
             );
+
+            nextNode = this.micGainNode;
         }
 
         // DynamicsCompressorNode 연결
@@ -549,7 +559,7 @@ export default class RecorderService {
      * @param {Function} listener
      */
     addGotStreamEventListener(listener) {
-        this.em.addEventListener("gotstream", listener);
+        this.addEventListener("gotstream", listener);
     }
 
     /**
@@ -557,7 +567,7 @@ export default class RecorderService {
      * @param {Function} listener
      */
     addBufferEventListener(listener) {
-        this.em.addEventListener("onaudioprocess", listener);
+        this.addEventListener("onaudioprocess", listener);
     }
 
     /**
@@ -565,7 +575,7 @@ export default class RecorderService {
      * @param {Function} listener
      */
     addRecordedEventListener(listener) {
-        this.em.addEventListener("recorded", listener);
+        this.addEventListener("recorded", listener);
     }
 
     /**
@@ -573,17 +583,27 @@ export default class RecorderService {
      */
     async getAudioInputDeviceInfo() {
         // 입력 장치 설정
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        this.debug("RecorderService: AudioDeviceList", devices);
+        const audioDevices = await navigator.mediaDevices.enumerateDevices();
+        this.debug("RecorderService: AudioInputDeviceList", audioDevices);
 
-        const device = devices.find((device) =>
-            device.label.toLowerCase().includes("headset")
-        );
-        if (device) {
-            this.debug("RecorderService: AudioOutputDevice", device);
+        const audioInputDevices = [];
+        audioDevices.forEach((device) => {
+            if (device.kind.toLowerCase().includes("audioinput")) {
+                audioInputDevices.push(device);
+            }
+        });
+        if (audioInputDevices.length <= 0) {
+            return;
         }
 
-        return device;
+        const inputDevice = audioInputDevices.find((device) =>
+            device.label.toLowerCase().includes("headset")
+        );
+        if (inputDevice) {
+            this.debug("RecorderService: AudioInputDevice", inputDevice);
+        }
+
+        return inputDevice;
     }
 
     /**
@@ -705,7 +725,7 @@ export default class RecorderService {
 
         // 오디오 처리 이벤트 트리거
         if (this.config.broadcastAudioProcessEvents) {
-            this.em.dispatchEvent(
+            this.dispatchEvent(
                 new CustomEvent("onaudioprocess", {
                     detail: {
                         audioBuffer: audioBuffer,
@@ -799,7 +819,7 @@ export default class RecorderService {
         /**
          * 녹음된 오디오 준비됨 이벤트 트리거
          */
-        this.em.dispatchEvent(
+        this.dispatchEvent(
             new CustomEvent("recorded", { detail: { recorded: recorded } })
         );
     }
@@ -860,7 +880,7 @@ export default class RecorderService {
         this.error("error", event);
         alert(event);
         // 오류 이벤트 트리거
-        this.em.dispatchEvent(new Event("error"));
+        this.dispatchEvent(new Event("error"));
     }
 
     /**

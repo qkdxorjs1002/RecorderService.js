@@ -59,6 +59,8 @@ document.addEventListener('DOMContentLoaded', function() {
         wavesurfer.load(event.detail.recorded.blobUrl);
     });
 
+    recorderService.init();
+
     micBtn.onclick = function() {
         if (!recording) {
             wavesurfer.un('ready');
