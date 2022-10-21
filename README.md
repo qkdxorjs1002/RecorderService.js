@@ -9,32 +9,73 @@ WebAudioAPI Audio Recorder Service
 ## Tutorial
 
 ```javascript
-// Initialize Pre-configured RecorderService
-var recorderSrvc = RecorderService.createPreConfigured();
+let recorderService = RecorderService.createPreConfigured({
+    debug: true,
+    micGain: 1.0,
+});
 
-// Add event listener to get audio buffer data
-// event.detail.buffer -> AudioBuffer
-recorderSrvc.addBufferEventListener("onaudioprocess", (event) =>
-    wavesurfer.loadDecodedBuffer(event.detail.buffer));
+// buffer event
+recorderService.addBufferEventListener(async (event) => {
+    let audioBuffer = event.detail.audioBuffer;
 
-// Add event listener for recorded data
-recorderSrvc.addRecordedEventListener("recorded", (event) => {
-    // event.detail.recorded.blob -> Blob
-    // event.detail.recorded.blobUrl -> String
+    wavesurfer.loadDecodedBuffer(audioBuffer);
+});
+
+// got stream event
+recorderService.addGotStreamEventListener(async () => {
+    console.log("'gotstream' Event is triggered...");
+});
+
+// recorded event
+recorderService.addRecordedEventListener(async (event) => {
+    console.log("'dataavailable' Event is triggered...");
+
+    document.querySelector('#blobUrl').innerHTML = event.detail.recorded.blobUrl;
+
+    wavesurfer.on('ready', function () {
+        wavesurfer.play();
+    });
     wavesurfer.load(event.detail.recorded.blobUrl);
 });
 
-// Start recording
-recorderSrvc.record()
-    .then(() => {
-        // after start recording
-    })
-    .catch(() => {
-        // catch exception
-    });
+// init 
+recorderService.init().then(() => {
+    console.log("RecorderService is inited...");
 
-// Stop recording
-recorderSrvc.stop();
+    micBtn.style.visibility = "visible";
+    micPauseBtn.style.visibility = "visible";
+});
+
+micBtn.onclick = function() {
+    if (!recording) {
+        wavesurfer.un('ready');
+        // record
+        recorderService.record().then(() => {
+            console.log("Start Recording...");
+        });
+        recording = true;
+    } else {
+        // stop
+        recorderService.stop().then(() => {
+            console.log("Stop Recording...");
+        });
+        recording = false;
+    }
+};
+
+micPauseBtn.onclick = function() {
+    if (recorderService.state === "recording") {
+        // pause
+        recorderService.pause().then(() => {
+            console.log("Pause Recording...");
+        });
+    } else if (recorderService.state === "paused") {
+        //resume
+        recorderService.resume().then(() => {
+            console.log("Resume Recording...");
+        });
+    }
+};    
 ```
 
 ## Demo

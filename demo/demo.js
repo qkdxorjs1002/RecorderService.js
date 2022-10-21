@@ -41,16 +41,25 @@ document.addEventListener('DOMContentLoaded', function() {
 
     recorderService = RecorderService.createPreConfigured({
         debug: true,
-        micGain: 2.0,
+        micGain: 1.0,
     });
 
+    // buffer event
     recorderService.addBufferEventListener(async (event) => {
         let audioBuffer = event.detail.audioBuffer;
 
         wavesurfer.loadDecodedBuffer(audioBuffer);
     });
 
+    // got stream event
+    recorderService.addGotStreamEventListener(async () => {
+        console.log("'gotstream' Event is triggered...");
+    });
+
+    // recorded event
     recorderService.addRecordedEventListener(async (event) => {
+        console.log("'dataavailable' Event is triggered...");
+
         document.querySelector('#blobUrl').innerHTML = event.detail.recorded.blobUrl;
 
         wavesurfer.on('ready', function () {
@@ -59,24 +68,42 @@ document.addEventListener('DOMContentLoaded', function() {
         wavesurfer.load(event.detail.recorded.blobUrl);
     });
 
-    recorderService.init();
+    // init 
+    recorderService.init().then(() => {
+        console.log("RecorderService is inited...");
+
+        micBtn.style.visibility = "visible";
+        micPauseBtn.style.visibility = "visible";
+    });
 
     micBtn.onclick = function() {
         if (!recording) {
             wavesurfer.un('ready');
-            recorderService.record();
+            // record
+            recorderService.record().then(() => {
+                console.log("Start Recording...");
+            });
             recording = true;
         } else {
-            recorderService.stop();
+            // stop
+            recorderService.stop().then(() => {
+                console.log("Stop Recording...");
+            });
             recording = false;
         }
     };
 
     micPauseBtn.onclick = function() {
         if (recorderService.state === "recording") {
-            recorderService.pause();
+            // pause
+            recorderService.pause().then(() => {
+                console.log("Pause Recording...");
+            });
         } else if (recorderService.state === "paused") {
-            recorderService.resume();
+            //resume
+            recorderService.resume().then(() => {
+                console.log("Resume Recording...");
+            });
         }
     };    
 });
