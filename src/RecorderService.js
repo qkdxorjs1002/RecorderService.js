@@ -46,7 +46,7 @@ export default class RecorderService extends EventTarget {
      * @property {Number} sampleRate                            오디오 샘플링 레이트 {16000}
      * @property {Number} channelCount                          오디오 입력, 처리될 채널 수 {1}
      * @property {String} latencyHint                           오디오 처리 우선 순위 [balanced | interactive | playback] {interactive}
-     * @property {Number} bufferSize                            오디오 버퍼 크기 [2^{12}=4096] {12}
+     * @property {Number} bufferSize                            오디오 버퍼 크기 [2^{12}=4096] {10}
      * @property {Number} micGain                               오디오 입력 증폭 {1.0}
      * @property {Number} outputGain                            오디오 출력 증폭 (MediaRecorder) {1.0}
      * @property {Boolean} callingMode                          전화 모드 {false}
@@ -71,7 +71,7 @@ export default class RecorderService extends EventTarget {
      *     sampleRate: 16000,
      *     channelCount: 1,
      *     latencyHint: "interactive",
-     *     bufferSize: 12,
+     *     bufferSize: 10,
      *     micGain: 1.0,
      *     outputGain: 1.0,
      *     callingMode: false,
@@ -95,7 +95,7 @@ export default class RecorderService extends EventTarget {
         // Dedicated DOM
         // this.em = document.createDocumentFragment();
 
-        this.state = "inactive";
+        this.state = "configured";
 
         this.chunks = [];
         this.chunkType = "";
@@ -106,7 +106,7 @@ export default class RecorderService extends EventTarget {
             sampleRate: 16000,
             channelCount: 1,
             latencyHint: "interactive",
-            bufferSize: 12,
+            bufferSize: 10,
             micGain: 1.0,
             outputGain: 1.0,
             callingMode: false,
@@ -286,190 +286,195 @@ export default class RecorderService extends EventTarget {
 
     /**
      * AudioContext 및 Node 초기화
-     * @returns {(Promise<MediaStream>|void)}
+     * @returns {(Promise)}
      */
-    async init() {
-        this.info("RecorderService: Initialization");
+    init() {
+        return new Promise(async (resolvedFn, rejectedFn) => {
+            this.info("RecorderService: Initialization");
 
-        if (this.state !== "inactive") {
-            return;
-        }
-        // getUserMedia 지원 여부 검증
-        if (
-            !navigator ||
-            !navigator.mediaDevices ||
-            !navigator.mediaDevices.getUserMedia
-        ) {
-            alert("navigator.mediaDevices.getUserMedia error");
-            return;
-        }
+            if (this.state !== "configured") {
+                return;
+            }
+            // getUserMedia 지원 여부 검증
+            if (
+                !navigator ||
+                !navigator.mediaDevices ||
+                !navigator.mediaDevices.getUserMedia
+            ) {
+                alert("navigator.mediaDevices.getUserMedia error");
+                return;
+            }
 
-        // WebAudioAPI AudioContext 초기화
-        this.audioCtx = new AudioContext({
-            latencyHint: this.config.latencyHint,
-            sampleRate: this.config.forcePostResampler
-                ? undefined
-                : this.config.sampleRate,
-        });
+            // WebAudioAPI AudioContext 초기화
+            this.audioCtx = new AudioContext({
+                latencyHint: this.config.latencyHint,
+                sampleRate: this.config.forcePostResampler
+                    ? undefined
+                    : this.config.sampleRate,
+            });
 
-        this.debug("RecorderService: AudioContext", this.audioCtx);
+            this.debug("RecorderService: AudioContext", this.audioCtx);
 
-        if (this.audioCtx) {
-            this.audioCtx.suspend();
-        }
-        // GainNode - 오디오 증폭 Node
-        this.micGainNode = this.audioCtx.createGain();
-        this.outputGainNode = this.audioCtx.createGain();
+            // AudioContext 일시정지
+            if (this.audioCtx) {
+                this.audioCtx.suspend();
+            }
+            // GainNode - 오디오 증폭 Node
+            this.micGainNode = this.audioCtx.createGain();
+            this.outputGainNode = this.audioCtx.createGain();
 
-        // DynamicCompressorNode - 오디오 리미터 Node
-        if (this.config.enableDynamicsCompressor) {
-            this.dynamicsCompressorNode =
-                this.audioCtx.createDynamicsCompressor();
-        }
-        /**
-         * config.sampleRate와 마이크 입력 SampleRate가 다를 경우,
-         * 설정된 config.bufferSize와 근사한 크기의 리샘플링된 버퍼를 출력하기 위해 목표 버퍼 크기 설정
-         */
-        this.bufferSizeRatio =
-            this.audioCtx.sampleRate / this.config.sampleRate;
-        this.bufferSize =
-            2 **
-            Math.min(
-                this.config.bufferSize + Math.round(this.bufferSizeRatio) - 1,
-                14
+            // DynamicCompressorNode - 오디오 리미터 Node
+            if (this.config.enableDynamicsCompressor) {
+                this.dynamicsCompressorNode =
+                    this.audioCtx.createDynamicsCompressor();
+            }
+            /**
+             * config.sampleRate와 마이크 입력 SampleRate가 다를 경우,
+             * 설정된 config.bufferSize와 근사한 크기의 리샘플링된 버퍼를 출력하기 위해 목표 버퍼 크기 설정
+             */
+            this.bufferSizeRatio =
+                this.audioCtx.sampleRate / this.config.sampleRate;
+            this.bufferSize =
+                2 **
+                Math.min(
+                    this.config.bufferSize + Math.round(this.bufferSizeRatio) - 1,
+                    14
+                );
+            this.debug(
+                "RecorderService: Preferred BufferSize",
+                this.bufferSize,
+                this.bufferSizeRatio
             );
-        this.debug(
-            "RecorderService: Preferred BufferSize",
-            this.bufferSize,
-            this.bufferSizeRatio
-        );
-        // AudioWorkletNode || ScriptProcessorNode - 오디오 버퍼 처리 Node
-        if (
-            this.config.broadcastAudioProcessEvents ||
-            !this.config.usingMediaRecorder
-        ) {
-            try {
-                const audioProcessorUrl =
-                    this.createAudioProcessorBlob(AudioProcessor);
+            // AudioWorkletNode || ScriptProcessorNode - 오디오 버퍼 처리 Node
+            if (
+                this.config.broadcastAudioProcessEvents ||
+                !this.config.usingMediaRecorder
+            ) {
+                try {
+                    const audioProcessorUrl =
+                        this.createAudioProcessorBlob(AudioProcessor);
 
-                if (this.config.noAudioWorklet) {
-                    throw new Error(
-                        "RecorderService: Config: noAudioWorklet: true"
+                    if (this.config.noAudioWorklet) {
+                        throw new Error(
+                            "RecorderService: Config: noAudioWorklet: true"
+                        );
+                    }
+
+                    this.audioCtx.audioWorklet
+                        .addModule(audioProcessorUrl)
+                        .then(async () => {
+                            this.debug(
+                                "RecorderService: Use AudioWorkletNode with AudioProcessor",
+                                audioProcessorUrl
+                            );
+
+                            this.processorNode = new AudioWorkletNode(
+                                this.audioCtx,
+                                "audio-processor",
+                                {
+                                    numberOfInputs: this.config.channelCount,
+                                    numberOfOutputs: this.config.channelCount,
+                                    processorOptions: {
+                                        bufferSize: this.bufferSize,
+                                    },
+                                }
+                            );
+                            this.debug(
+                                "RecorderService: AudioWorkletNode",
+                                this.processorNode
+                            );
+
+                            this.audioBuffer = this.audioCtx.createBuffer(
+                                this.config.channelCount,
+                                this.bufferSize,
+                                this.audioCtx.sampleRate
+                            );
+                            this.debug(
+                                "RecorderService: AudioBuffer",
+                                this.audioBuffer
+                            );
+                        });
+                } catch (e) {
+                    // AudioWorkletNode 생성 실패시, ScriptProcessorNode 시도
+                    this.warn(
+                        "RecorderService: AudioWorkletNode is not available. Use ScriptProcessorNode.",
+                        e
+                    );
+                    this.config.noAudioWorklet = true;
+                    this.processorNode = this.audioCtx.createScriptProcessor(
+                        this.bufferSize,
+                        this.config.channelCount,
+                        1
+                    );
+                    this.debug(
+                        "RecorderService: ScriptProcessorNode",
+                        this.processorNode
                     );
                 }
-
-                this.audioCtx.audioWorklet
-                    .addModule(audioProcessorUrl)
-                    .then(async () => {
-                        this.debug(
-                            "RecorderService: Use AudioWorkletNode with AudioProcessor",
-                            audioProcessorUrl
-                        );
-
-                        this.processorNode = new AudioWorkletNode(
-                            this.audioCtx,
-                            "audio-processor",
-                            {
-                                numberOfInputs: this.config.channelCount,
-                                numberOfOutputs: this.config.channelCount,
-                                processorOptions: {
-                                    bufferSize: this.bufferSize,
-                                },
-                            }
-                        );
-                        this.debug(
-                            "RecorderService: AudioWorkletNode",
-                            this.processorNode
-                        );
-
-                        this.audioBuffer = this.audioCtx.createBuffer(
-                            this.config.channelCount,
-                            this.bufferSize,
-                            this.audioCtx.sampleRate
-                        );
-                        this.debug(
-                            "RecorderService: AudioBuffer",
-                            this.audioBuffer
-                        );
-                    });
-            } catch (e) {
-                // AudioWorkletNode 생성 실패시, ScriptProcessorNode 시도
-                this.warn(
-                    "RecorderService: AudioWorkletNode is not available. Use ScriptProcessorNode.",
-                    e
-                );
-                this.config.noAudioWorklet = true;
-                this.processorNode = this.audioCtx.createScriptProcessor(
-                    this.bufferSize,
-                    this.config.channelCount,
-                    1
-                );
-                this.debug(
-                    "RecorderService: ScriptProcessorNode",
-                    this.processorNode
-                );
             }
-        }
-        // MediaStreamDestinationNode - 미디어 스트림 목적지 Node
-        if (this.audioCtx.createMediaStreamDestination) {
-            this.destinationNode = this.audioCtx.createMediaStreamDestination();
-        } else {
-            this.destinationNode = this.audioCtx.destination;
-        }
-        // Blob 생성하고, MediaRecorder 사용 안할 경우, 인코딩 Worker 초기화
-        if (!this.config.usingMediaRecorder && this.config.makeBlob) {
-            this.encoderWorker = this.createWorker(EncoderWav);
-            this.encoderMimeType = "audio/wav";
+            // MediaStreamDestinationNode - 미디어 스트림 목적지 Node
+            if (this.audioCtx.createMediaStreamDestination) {
+                this.destinationNode = this.audioCtx.createMediaStreamDestination();
+            } else {
+                this.destinationNode = this.audioCtx.destination;
+            }
+            // Blob 생성하고, MediaRecorder 사용 안할 경우, 인코딩 Worker 초기화
+            if (!this.config.usingMediaRecorder && this.config.makeBlob) {
+                this.encoderWorker = this.createWorker(EncoderWav);
+                this.encoderMimeType = "audio/wav";
 
-            // 인코딩 Worker 이벤트 리스너 추가
-            this.encoderWorker.addEventListener("message", async (e) => {
-                let event = new Event("dataavailable");
-                event.data = new Blob(e.data, { type: this.encoderMimeType });
+                // 인코딩 Worker 이벤트 리스너 추가
+                this.encoderWorker.addEventListener("message", async (e) => {
+                    let event = new Event("dataavailable");
+                    event.data = new Blob(e.data, { type: this.encoderMimeType });
 
-                this._onDataAvailable(event);
-            });
-        }
+                    this._onDataAvailable(event);
+                });
+            }
 
-        // 입력 장치 설정
-        const device = this.config.callingMode
-            ? await this.getAudioInputDeviceInfo()
-            : undefined;
-        if (!device) {
-            this.config.callingMode = false;
-        }
+            // 입력 장치 설정
+            const device = this.config.callingMode
+                ? await this.getAudioInputDeviceInfo()
+                : undefined;
+            if (!device) {
+                this.config.callingMode = false;
+            }
 
-        // getUserMedia 제약
-        const userMediaConstraints = {
-            audio: Object.assign(
-                {
-                    // @NOTE 기기 마다 지원하지 않는 경우도 있어서 비활성
-                    // sampleRate: this.config.sampleRate,
-                    channelCount: this.config.channelCount,
-                    deviceId: device ? device.deviceId : undefined,
-                },
-                this.config.audioConstraints
-            ),
-        };
+            // getUserMedia 제약
+            const userMediaConstraints = {
+                audio: Object.assign(
+                    {
+                        // @NOTE 기기 마다 지원하지 않는 경우도 있어서 비활성
+                        // sampleRate: this.config.sampleRate,
+                        channelCount: this.config.channelCount,
+                        deviceId: device ? device.deviceId : undefined,
+                    },
+                    this.config.audioConstraints
+                ),
+            };
 
-        this.debug(
-            "RecorderService: UserMediaConstraints",
-            userMediaConstraints
-        );
+            this.debug(
+                "RecorderService: UserMediaConstraints",
+                userMediaConstraints
+            );
 
-        // MediaStream 요청
-        return navigator.mediaDevices
-            .getUserMedia(userMediaConstraints)
-            .then((stream) => {
-                this.debug("RecorderService: MediaStream", stream);
-                /**
-                 * MediaStream 이벤트 트리거
-                 */
-                this.dispatchEvent(
-                    new CustomEvent("gotstream", { detail: { stream } })
-                );
-                this._init(stream);
-            })
-            .catch((err) => this._onError(err));
+            // MediaStream 요청
+            let mediaStream;
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia(userMediaConstraints);
+            } catch (err) {
+                this._onError(err);
+            }
+
+            this.debug("RecorderService: MediaStream", mediaStream);
+            this.dispatchEvent(
+                new CustomEvent("gotstream", { detail: { mediaStream } })
+            );
+
+            // _init
+            await this._init(mediaStream);
+            resolvedFn();
+        });
     }
 
     /**
@@ -477,7 +482,7 @@ export default class RecorderService extends EventTarget {
      * @private
      * @param {MediaStream} stream
      */
-    _init(stream) {
+    async _init(stream) {
         this.micAudioStream = stream;
 
         // MediaStreamSourceNode - 미디어 스트림 입력 Node
@@ -547,7 +552,8 @@ export default class RecorderService extends EventTarget {
             }
         }
 
-        this._pause();
+        await this._pause();
+        this.state = "inactive";
     }
 
     /**
@@ -604,25 +610,21 @@ export default class RecorderService extends EventTarget {
 
     /**
      * 녹음 시작
-     * @returns {Promise|void}
+     * @returns {Promise}
      */
     record() {
-        if (this.state !== "paused") {
-            if (this.state !== "inactive") {
-                return;
+        return new Promise(async (resolvedFn, rejectedFn) => {
+            if (this.state === "configured") {
+                await this.init();
             }
-
-            return this.init().then(() => {
-                this._record();
-            });
-        }
-
-        this._record();
+            await this._record(); 
+            resolvedFn();
+        });
     }
 
-    _record() {
+    async _record() {
         this.info("RecorderService: Start Recording");
-        this._resume();
+        await this._resume();
 
         if (this.processorNode) {
             // Message Handler
@@ -638,38 +640,46 @@ export default class RecorderService extends EventTarget {
 
     /**
      * 녹음 일시정지
+     * @returns {Promise}
      */
     pause() {
-        if (this.state !== "recording") {
-            return;
-        }
-
-        this.info("RecorderService: Pause Recording");
-        this._pause();
+        return new Promise(async (resolvedFn, rejectedFn) => {
+            if (this.state !== "recording") {
+                rejectedFn(this.state);
+                return;
+            }
+            this.info("RecorderService: Pause Recording");
+            await this._pause();
+            resolvedFn();
+        });
     }
 
-    _pause() {
+    async _pause() {
         if (this.audioCtx && this.audioCtx.state === "running") {
-            this.audioCtx.suspend();
+            await this.audioCtx.suspend();
         }
         this.state = "paused";
     }
 
     /**
      * 녹음 이어하기
+     * @returns {Promise}
      */
     resume() {
-        if (this.state !== "paused") {
-            return;
-        }
-
-        this.info("RecorderService: Resume Recording");
-        this._resume();
+        return new Promise(async (resolvedFn, rejectedFn) => {
+            if (this.state !== "paused") {
+                rejectedFn(this.state);
+                return;
+            }
+            this.info("RecorderService: Resume Recording");
+            await this._resume();
+            resolvedFn();
+        });
     }
 
-    _resume() {
-        if (this.audioCtx && this.audioCtx.state === "suspended") {
-            this.audioCtx.resume();
+    async _resume() {
+        if (this.audioCtx && this.audioCtx.state !== "running") {
+            await this.audioCtx.resume();
         }
         this.state = "recording";
     }
@@ -684,10 +694,6 @@ export default class RecorderService extends EventTarget {
      * @private
      */
     _onAudioProcess(event) {
-        if (this.state !== "recording") {
-            return;
-        }
-
         if (this.config.debug) {
             const now = new Date().getTime();
             this.debug(
@@ -750,35 +756,38 @@ export default class RecorderService extends EventTarget {
 
     /**
      * 녹음 종료 및 인코딩 데이터 Dump, 자원 해체
+     * @returns {Promise}
      */
-    async stop() {
-        this.info("RecorderService: Stop Recording");
+    stop() {
+        return new Promise(async (resolvedFn, rejectedFn) => {
+            this.info("RecorderService: Stop Recording");
 
-        if (this.state === "inactive") {
-            return;
-        }
-        
-        if (this.audioCtx && this.audioCtx.state === "running") {
-            this.audioCtx.suspend();
-        }
-
-        this.state = "inactive";
-        // Blob 생성할 경우
-        if (this.config.makeBlob) {
-            // MediaRecorder 사용할 경우
-            if (this.config.usingMediaRecorder) {
-                // MediaRecorder 사용할 경우 정지
-                this.mediaRecorder.stop();
-            } else {
-                // 인코딩 Worker 데이터 dump 요청
-                this.encoderWorker.postMessage([
-                    "dump",
-                    this.config.sampleRate,
-                ]);
+            if (this.state === "inactive") {
+                rejectedFn(this.state);
+                return;
             }
-        } else {
-            this._destroy();
-        }
+            
+            if (this.audioCtx && this.audioCtx.state === "running") {
+                this.audioCtx.suspend();
+            }
+    
+            this.state = "inactive";
+            // Blob 생성할 경우
+            if (this.config.makeBlob) {
+                // MediaRecorder 사용할 경우
+                if (this.config.usingMediaRecorder) {
+                    // MediaRecorder 사용할 경우 정지
+                    this.mediaRecorder.stop();
+                } else {
+                    // 인코딩 Worker 데이터 dump 요청
+                    this.encoderWorker.postMessage([
+                        "dump",
+                        this.config.sampleRate,
+                    ]);
+                }
+            }
+            resolvedFn();
+        });
     }
 
     /**
@@ -821,8 +830,8 @@ export default class RecorderService extends EventTarget {
             size: blob.size,
         };
 
-        // 자원 해제
-        this._destroy();
+        // 녹음된 데이터 초기화
+        this._clear();
 
         /**
          * 녹음된 오디오 준비됨 이벤트 트리거
@@ -837,8 +846,7 @@ export default class RecorderService extends EventTarget {
      * @private
      */
     _destroy() {
-        this.chunks = [];
-        this.chunkType = null;
+        this._clear();
 
         if (this.destinationNode) {
             this.destinationNode.disconnect();
@@ -877,6 +885,15 @@ export default class RecorderService extends EventTarget {
                 this.audioCtx = null;
             }
         }
+    }
+
+    /**
+     * 녹음된 오디오 자원 초기화
+     * @private
+     */
+    _clear() {
+        this.chunks = [];
+        this.chunkType = null;
     }
 
     /**
