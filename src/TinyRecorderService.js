@@ -257,6 +257,7 @@
     record() {
         return new Promise(async (resolvedFn, rejectedFn) => {
             if (this.state === "configured") {
+                this.info("RecorderService: Init before excute record");
                 await this.init();
             }
             await this._record();
@@ -281,6 +282,7 @@
     pause() {
         return new Promise(async (resolvedFn, rejectedFn) => {
             if (this.state !== "recording") {
+                this.error("RecorderService: Failed to Pause Recording", `${this.state} !== "recording"`);
                 rejectedFn(this.state);
                 return;
             }
@@ -303,6 +305,7 @@
     resume() {
         return new Promise(async (resolvedFn, rejectedFn) => {
             if (this.state !== "paused") {
+                this.error("RecorderService: Failed to Resume Recording", `${this.state} !== "paused"`);
                 rejectedFn(this.state);
                 return;
             }
