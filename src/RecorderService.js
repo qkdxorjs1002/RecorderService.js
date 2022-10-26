@@ -293,6 +293,7 @@ export default class RecorderService extends EventTarget {
             this.info("RecorderService: Initialization");
 
             if (this.state !== "configured") {
+                rejectedFn(this.state);
                 return;
             }
             // getUserMedia 지원 여부 검증
@@ -302,6 +303,7 @@ export default class RecorderService extends EventTarget {
                 !navigator.mediaDevices.getUserMedia
             ) {
                 alert("navigator.mediaDevices.getUserMedia error");
+                rejectedFn("navigator.mediaDevices.getUserMedia error");
                 return;
             }
 
@@ -315,7 +317,9 @@ export default class RecorderService extends EventTarget {
 
             // AudioContext 일시정지
             if (this.audioCtx) {
+                this.info("RecorderService: AudioContext State From", this.audioCtx.state);
                 await this.audioCtx.suspend();
+                this.info("RecorderService: AudioContext State To", this.audioCtx.state);
             }
             
             this.debug("RecorderService: AudioContext", this.audioCtx);
@@ -614,6 +618,7 @@ export default class RecorderService extends EventTarget {
     record() {
         return new Promise(async (resolvedFn, rejectedFn) => {
             if (this.state === "configured") {
+                this.info("RecorderService: Init before excute record");
                 await this.init();
             }
             await this._record(); 
@@ -644,6 +649,7 @@ export default class RecorderService extends EventTarget {
     pause() {
         return new Promise(async (resolvedFn, rejectedFn) => {
             if (this.state !== "recording") {
+                this.error("RecorderService: Failed to Pause Recording", `${this.state} !== "recording"`);
                 rejectedFn(this.state);
                 return;
             }
@@ -654,9 +660,9 @@ export default class RecorderService extends EventTarget {
     }
 
     async _pause() {
-        if (this.audioCtx && this.audioCtx.state === "running") {
-            await this.audioCtx.suspend();
-        }
+        this.info("RecorderService: AudioContext State From", this.audioCtx.state);
+        await this.audioCtx.suspend();
+        this.info("RecorderService: AudioContext State To", this.audioCtx.state);
         this.state = "paused";
     }
 
@@ -667,6 +673,7 @@ export default class RecorderService extends EventTarget {
     resume() {
         return new Promise(async (resolvedFn, rejectedFn) => {
             if (this.state !== "paused") {
+                this.error("RecorderService: Failed to Resume Recording", `${this.state} !== "paused"`);
                 rejectedFn(this.state);
                 return;
             }
@@ -677,9 +684,9 @@ export default class RecorderService extends EventTarget {
     }
 
     async _resume() {
-        if (this.audioCtx && this.audioCtx.state !== "running") {
-            await this.audioCtx.resume();
-        }
+        this.info("RecorderService: AudioContext State From", this.audioCtx.state);
+        await this.audioCtx.resume();
+        this.info("RecorderService: AudioContext State To", this.audioCtx.state);
         this.state = "recording";
     }
 
@@ -766,11 +773,11 @@ export default class RecorderService extends EventTarget {
                 return;
             }
             
-            if (this.audioCtx && this.audioCtx.state === "running") {
-                this.audioCtx.suspend();
-            }
-    
+            this.info("RecorderService: AudioContext State From", this.audioCtx.state);
+            await this.audioCtx.suspend();
+            this.info("RecorderService: AudioContext State To", this.audioCtx.state);
             this.state = "inactive";
+            
             // Blob 생성할 경우
             if (this.config.makeBlob) {
                 // MediaRecorder 사용할 경우
