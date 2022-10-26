@@ -313,12 +313,13 @@ export default class RecorderService extends EventTarget {
                     : this.config.sampleRate,
             });
 
-            this.debug("RecorderService: AudioContext", this.audioCtx);
-
             // AudioContext 일시정지
             if (this.audioCtx) {
-                this.audioCtx.suspend();
+                await this.audioCtx.suspend();
             }
+            
+            this.debug("RecorderService: AudioContext", this.audioCtx);
+
             // GainNode - 오디오 증폭 Node
             this.micGainNode = this.audioCtx.createGain();
             this.outputGainNode = this.audioCtx.createGain();
@@ -360,40 +361,38 @@ export default class RecorderService extends EventTarget {
                         );
                     }
 
-                    this.audioCtx.audioWorklet
-                        .addModule(audioProcessorUrl)
-                        .then(async () => {
-                            this.debug(
-                                "RecorderService: Use AudioWorkletNode with AudioProcessor",
-                                audioProcessorUrl
-                            );
+                    await this.audioCtx.audioWorklet.addModule(audioProcessorUrl);
+                    
+                    this.debug(
+                        "RecorderService: Use AudioWorkletNode with AudioProcessor",
+                        audioProcessorUrl
+                    );
 
-                            this.processorNode = new AudioWorkletNode(
-                                this.audioCtx,
-                                "audio-processor",
-                                {
-                                    numberOfInputs: this.config.channelCount,
-                                    numberOfOutputs: this.config.channelCount,
-                                    processorOptions: {
-                                        bufferSize: this.bufferSize,
-                                    },
-                                }
-                            );
-                            this.debug(
-                                "RecorderService: AudioWorkletNode",
-                                this.processorNode
-                            );
+                    this.processorNode = new AudioWorkletNode(
+                        this.audioCtx,
+                        "audio-processor",
+                        {
+                            numberOfInputs: this.config.channelCount,
+                            numberOfOutputs: this.config.channelCount,
+                            processorOptions: {
+                                bufferSize: this.bufferSize,
+                            },
+                        }
+                    );
+                    this.debug(
+                        "RecorderService: AudioWorkletNode",
+                        this.processorNode
+                    );
 
-                            this.audioBuffer = this.audioCtx.createBuffer(
-                                this.config.channelCount,
-                                this.bufferSize,
-                                this.audioCtx.sampleRate
-                            );
-                            this.debug(
-                                "RecorderService: AudioBuffer",
-                                this.audioBuffer
-                            );
-                        });
+                    this.audioBuffer = this.audioCtx.createBuffer(
+                        this.config.channelCount,
+                        this.bufferSize,
+                        this.audioCtx.sampleRate
+                    );
+                    this.debug(
+                        "RecorderService: AudioBuffer",
+                        this.audioBuffer
+                    );
                 } catch (e) {
                     // AudioWorkletNode 생성 실패시, ScriptProcessorNode 시도
                     this.warn(
